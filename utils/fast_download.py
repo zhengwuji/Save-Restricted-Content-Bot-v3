@@ -108,7 +108,10 @@ async def fast_download(
         return None
 
     num_workers = min(len(_download_pool), NUM_WORKERS)
-    chunk_size = (file_size + num_workers - 1) // num_workers
+    # 必须对齐到 1MB (1024*1024)，否则 Telegram 会返回 OFFSET_INVALID
+    alignment = 1024 * 1024
+    chunk_size = ((file_size // num_workers) // alignment) * alignment
+    if chunk_size == 0: chunk_size = alignment
 
     # 预分配文件
     try:

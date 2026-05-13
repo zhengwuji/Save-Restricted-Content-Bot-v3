@@ -257,7 +257,10 @@ async def rename_file(file, sender, edit):
         for word, replace_word in replacements.items():
             original_file_name = original_file_name.replace(word, replace_word)
         
+        dir_name = os.path.dirname(file)
         new_file_name = f'{original_file_name} {custom_rename_tag}.{file_extension}'
+        if dir_name:
+            new_file_name = os.path.join(dir_name, new_file_name)
         
         os.rename(file, new_file_name)
         return new_file_name

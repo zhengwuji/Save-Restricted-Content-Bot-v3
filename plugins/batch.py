@@ -207,8 +207,59 @@ async def prog(c, t, C, h, m, st, extra="", uid=None):
             pass
         if p >= 100: P.pop(m, None)
 
-async def send_direct(c, m, tcid, ft=None, rtmid=None):
+async def send_direct_group(c, messages, tcid, ft=None, rtmid=None):
+    """
+    尝试直接转发媒体组（秒发）。
+    优先：机器人直接 copy_media_group
+    其次：用户代理 copy_media_group 到 LOG_GROUP，机器人再 copy 出来
+    """
     try:
+        from_chat = messages[0].chat.id
+        msg_ids = [m.id for m in messages]
+        
+        # 方法 1: 机器人直接复制
+        try:
+            await c.copy_media_group(tcid, from_chat, msg_ids, reply_to_message_id=rtmid)
+            return True
+        except Exception:
+            pass
+            
+        # 方法 2: 用户代理中转
+        if Y and LOG_GROUP:
+            try:
+                tms = await Y.copy_media_group(LOG_GROUP, from_chat, msg_ids)
+                await c.copy_media_group(tcid, LOG_GROUP, [m.id for m in tms], reply_to_message_id=rtmid)
+                return True
+            except Exception as e:
+                print(f"Transfer group forward failed: {e}")
+                pass
+    except Exception as e:
+        print(f"send_direct_group error: {e}")
+    return False
+
+async def send_direct(c, m, tcid, ft=None, rtmid=None):
+    """
+    尝试直接转发（秒发）逻辑。
+    """
+    try:
+        # 方法 1: 机器人直接复制
+        try:
+            await c.copy_message(tcid, m.chat.id, m.id, caption=ft, reply_to_message_id=rtmid)
+            return True
+        except Exception:
+            pass
+
+        # 方法 2: 用户代理中转
+        if Y and LOG_GROUP:
+            try:
+                tm = await Y.copy_message(LOG_GROUP, m.chat.id, m.id)
+                await c.copy_message(tcid, LOG_GROUP, tm.id, caption=ft, reply_to_message_id=rtmid)
+                return True
+            except Exception as e:
+                print(f"Transfer forward failed: {e}")
+                pass
+
+        # 方法 3: 通过 File ID 发送
         if m.video:
             await c.send_video(tcid, m.video.file_id, caption=ft, duration=m.video.duration, width=m.video.width, height=m.video.height, reply_to_message_id=rtmid)
         elif m.video_note:
@@ -253,7 +304,8 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
             user_cap = await get_user_data_key(d, 'caption', '')
             ft = f'{proc_text}\n\n{user_cap}' if proc_text and user_cap else user_cap if user_cap else proc_text
             
-            if lt == 'public' and not emp.get(i, False):
+            # --- 尝试秒发 (全类型，优先使用 copy_message 逻辑) ---
+            if not emp.get(i, False):
                 if await send_direct(c, m, tcid, ft, rtmid):
                     return 'Sent directly.'
                 else:
@@ -263,26 +315,27 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
             reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🚫 取消任务", callback_data=f"cancel_{uid}")]])
             p = await c.send_message(d, f'正在准备下载 {extra}...', reply_markup=reply_markup)
 
-            c_name = f"{time.time()}"
+            # 确保下载目录存在并使用绝对路径
+            DOWNLOAD_DIR = os.path.abspath("downloads")
+            if not os.path.exists(DOWNLOAD_DIR):
+                os.makedirs(DOWNLOAD_DIR)
+
+            c_name = os.path.join(DOWNLOAD_DIR, f"{time.time()}")
             if m.video:
-                file_name = m.video.file_name
-                if not file_name:
-                    file_name = f"{time.time()}.mp4"
-                    c_name = sanitize(file_name)
+                file_name = m.video.file_name or f"{time.time()}.mp4"
+                c_name = os.path.join(DOWNLOAD_DIR, sanitize(file_name))
             elif m.audio:
-                file_name = m.audio.file_name
-                if not file_name:
-                    file_name = f"{time.time()}.mp3"
-                    c_name = sanitize(file_name)
+                file_name = m.audio.file_name or f"{time.time()}.mp3"
+                c_name = os.path.join(DOWNLOAD_DIR, sanitize(file_name))
             elif m.document:
-                file_name = m.document.file_name
-                if not file_name:
-                    file_name = f"{time.time()}"
-                else:
-                    c_name = sanitize(file_name)
+                file_name = m.document.file_name or f"{time.time()}"
+                c_name = os.path.join(DOWNLOAD_DIR, sanitize(file_name))
             elif m.photo:
-                file_name = f"{time.time()}.jpg"
-                c_name = sanitize(file_name)
+                c_name = os.path.join(DOWNLOAD_DIR, f"{time.time()}.jpg")
+            elif m.video_note:
+                c_name = os.path.join(DOWNLOAD_DIR, f"{time.time()}.mp4")
+            elif m.voice:
+                c_name = os.path.join(DOWNLOAD_DIR, f"{time.time()}.ogg")
     
             # --- 尝试并行高速下载 ---
             f = None
@@ -439,11 +492,15 @@ async def cancel_cmd(c, m):
     uid = m.from_user.id
     if is_user_active(uid):
         if await request_batch_cancel(uid):
-            await m.reply_text('Cancellation requested. The current batch will stop after the current download completes.')
+            await m.reply_text('🚫 任务停止请求已发送。当前文件下载完成后将停止。')
         else:
-            await m.reply_text('Failed to request cancellation. Please try again.')
+            # 强制清理状态，以防万一
+            await remove_active_batch(uid)
+            Z.pop(uid, None)
+            await m.reply_text('⚠️ 停止请求失败，已强制重置状态。')
     else:
-        await m.reply_text('No active batch process found.')
+        Z.pop(uid, None) # 确保 Z 也被清理
+        await m.reply_text('目前没有正在运行的任务。')
 
 @X.on_message(filters.text & filters.private & ~login_in_progress & ~filters.command([
     'start', 'batch', 'cancel', 'login', 'logout', 'stop', 'set', 
@@ -504,7 +561,8 @@ async def text_handler(c, m):
             return
             
         if is_user_active(uid):
-            await pt.edit('Active task exists. Use /stop first.')
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🛑 强制停止并重置", callback_data=f"force_stop_{uid}")]])
+            await pt.edit('⚠️ 任务正在运行中。如果您确定要开启新任务，请先停止当前任务。', reply_markup=reply_markup)
             Z.pop(uid, None)
             return
 
@@ -530,12 +588,121 @@ async def text_handler(c, m):
 
             if messages:
                 total = len(messages)
+                print(f"Detected {total} messages for grouping.")
+                
+                # 获取转发设置
+                cfg_chat = await get_user_data_key(str(m.chat.id), 'chat_id', None)
+                tcid = str(m.chat.id)
+                rtmid = None
+                if cfg_chat:
+                    if '/' in cfg_chat:
+                        parts = cfg_chat.split('/', 1)
+                        tcid = int(parts[0])
+                        rtmid = int(parts[1]) if len(parts) > 1 else None
+                    else:
+                        tcid = int(cfg_chat)
+
+                # --- 1. 尝试合并秒发 (转发/复制) ---
+                if total > 1:
+                    await pt.edit(f'检测到媒体组 ({total} 个文件)，正在尝试合并秒发...')
+                    
+                    # 尝试多种秒发方式
+                    success = False
+                    
+                    # 方式 A: copy_media_group (最整洁)
+                    if await send_direct_group(ubot, messages, tcid, rtmid=rtmid):
+                        success = True
+                    
+                    # 方式 B: forward_messages (作为备份)
+                    if not success:
+                        try:
+                            from_chat = messages[0].chat.id
+                            msg_ids = [msg.id for msg in messages]
+                            await ubot.forward_messages(tcid, from_chat, msg_ids)
+                            success = True
+                        except Exception as fe:
+                            print(f"Forward fallback failed: {fe}")
+                    
+                    if success:
+                        await pt.edit(f'✅ 媒体组已秒发成功！')
+                        return
+                    else:
+                        await pt.edit(f'合并秒发失败，将尝试并行下载并合并发送...')
+
+                # --- 2. 如果秒发失败且是媒体组，尝试下载后合并发送 ---
+                if total > 1:
+                    downloaded_files = []
+                    try:
+                        for index, msg in enumerate(messages):
+                            if should_cancel(uid): break
+                            info = f"正在下载组内文件 {index+1}/{total}"
+                            # 调用 process_msg 但让它只返回文件路径而不发送
+                            # 为了不重构太多，我们直接在这里写下载逻辑
+                            
+                            # 预处理文件名和路径
+                            DOWNLOAD_DIR = os.path.abspath("downloads")
+                            if not os.path.exists(DOWNLOAD_DIR): os.makedirs(DOWNLOAD_DIR)
+                            
+                            ext = ".mp4" if msg.video or msg.video_note else ".jpg" if msg.photo else ".zip"
+                            if msg.document: ext = os.path.splitext(msg.document.file_name)[1] or ".zip"
+                            
+                            tmp_name = os.path.join(DOWNLOAD_DIR, f"{time.time()}_{index}{ext}")
+                            
+                            await pt.edit(f'🚀 正在并行下载第 {index+1}/{total} 个文件...')
+                            
+                            # 使用并行下载器 (带进度条)
+                            from utils.fast_download import fast_download as parallel_dl, _download_pool
+                            f = None
+                            if _download_pool:
+                                f = await parallel_dl(
+                                    msg, tmp_name, 
+                                    progress_callback=prog,
+                                    progress_args=(c, d, pt.id, st, f"({index+1}/{total})", uid),
+                                    cancel_check=lambda: should_cancel(uid)
+                                )
+                            
+                            if not f: # 回退到普通下载
+                                f = await uc.download_media(msg, file_name=tmp_name, progress=prog, progress_args=(c, d, pt.id, st, f"({index+1}/{total})", uid))
+                            
+                            if f:
+                                # 重命名
+                                f = await rename_file(f, uid, pt)
+                                downloaded_files.append((f, msg))
+                        
+                        if len(downloaded_files) == total:
+                            await pt.edit(f'✅ 所有文件下载完成，正在合并上传为媒体组...')
+                            
+                            from pyrogram.types import InputMediaVideo, InputMediaPhoto, InputMediaDocument
+                            media = []
+                            for f_path, msg in downloaded_files:
+                                if f_path.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.m4v')):
+                                    media.append(InputMediaVideo(f_path, caption=msg.caption))
+                                elif f_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                                    media.append(InputMediaPhoto(f_path, caption=msg.caption))
+                                else:
+                                    media.append(InputMediaDocument(f_path, caption=msg.caption))
+                            
+                            if media:
+                                await ubot.send_media_group(tcid, media, reply_to_message_id=rtmid)
+                                await pt.edit(f'✅ 媒体组合并发送成功！')
+                                # 清理文件
+                                for f, _ in downloaded_files:
+                                    if os.path.exists(f): os.remove(f)
+                                return
+                    except Exception as ge:
+                        print(f"Group download/upload error: {ge}")
+                        # 清理已下载的文件
+                        for f, _ in downloaded_files:
+                            if os.path.exists(f): os.remove(f)
+                        await pt.edit(f'合并发送失败 ({str(ge)[:30]})，将回退到逐个发送...')
+
+                # --- 3. 最后的手段：逐个处理 ---
                 for index, msg in enumerate(messages):
                     if should_cancel(uid):
                         break
                     info = f"第 {index+1}/{total} 个文件"
                     res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i, extra=info)
-                    if 'Cancelled' in res:
+                    if res == 'Cancelled':
                         break
                 
                 if should_cancel(uid):
@@ -636,21 +803,26 @@ async def cancel_callback(c, cb):
         await cb.answer("这不是您的任务哦 ~", show_alert=True)
         return
     
-    if is_user_active(uid):
-        await request_batch_cancel(uid)
-        await cb.answer("已取消，正在清理...", show_alert=True)
-        # Delete the progress message immediately
-        try:
-            await cb.message.delete()
-        except Exception:
-            pass
-        # Also clear Z state so the user can start a new task right away
-        from plugins.batch import Z
-        Z.pop(uid, None)
-        await remove_active_batch(uid)
-    else:
-        await cb.answer("没有正在运行的任务。", show_alert=True)
-        try:
-            await cb.message.delete()
-        except Exception:
-            pass
+    await request_batch_cancel(uid)
+    Z.pop(uid, None)
+    await remove_active_batch(uid)
+    await cb.answer("已尝试取消，状态已清理。", show_alert=True)
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+@X.on_callback_query(filters.regex(r"^force_stop_(\d+)$"))
+async def force_stop_callback(c, cb):
+    uid = int(cb.matches[0].group(1))
+    if cb.from_user.id != uid:
+        await cb.answer("这不是您的任务哦 ~", show_alert=True)
+        return
+    
+    await remove_active_batch(uid)
+    Z.pop(uid, None)
+    await cb.answer("状态已强制重置！", show_alert=True)
+    try:
+        await cb.message.edit("✅ 状态已强制重置，您可以重新发送链接了。")
+    except Exception:
+        pass
