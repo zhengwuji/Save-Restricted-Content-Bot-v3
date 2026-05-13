@@ -1,0 +1,169 @@
+# Copyright (c) 2025 devgagan : https://github.com/devgaganin.  
+# Licensed under the GNU General Public License v3.0.  
+# See LICENSE file in the repository root for full license text.
+
+from shared_client import app
+from pyrogram import filters
+from pyrogram.errors import UserNotParticipant
+from pyrogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from config import LOG_GROUP, OWNER_ID, FORCE_SUB
+
+async def subscribe(app, message):
+    return 0
+     
+@app.on_message(filters.command("set"))
+async def set(_, message):
+    if message.from_user.id not in OWNER_ID:
+        await message.reply("You are not authorized to use this command.")
+        return
+     
+    await app.set_bot_commands([
+        BotCommand("start", "🚀 开始使用"),
+        BotCommand("batch", "🫠 批量抓取内容"),
+        BotCommand("login", "🔑 登录私有频道"),
+        BotCommand("settings", "⚙️ 机器人设置"),
+        BotCommand("help", "❓ 帮助信息"),
+        BotCommand("stats", "📊 运行统计"),
+        BotCommand("plan", "💰 订阅计划"),
+        BotCommand("logout", "🚪 退出登录"),
+        BotCommand("cancel", "🚫 取消当前操作")
+    ])
+ 
+    await message.reply("✅ Commands configured successfully!")
+ 
+help_pages = [
+    (
+        "📝 **Bot Commands Overview (1/2)**:\n\n"
+        "1. **/add userID**\n"
+        "> Add user to premium (Owner only)\n\n"
+        "2. **/rem userID**\n"
+        "> Remove user from premium (Owner only)\n\n"
+        "3. **/transfer userID**\n"
+        "> Transfer premium to your beloved major purpose for resellers (Premium members only)\n\n"
+        "4. **/get**\n"
+        "> Get all user IDs (Owner only)\n\n"
+        "5. **/lock**\n"
+        "> Lock channel from extraction (Owner only)\n\n"
+        "6. **/dl link**\n"
+        "> Download videos (Not available in v3 if you are using)\n\n"
+        "7. **/adl link**\n"
+        "> Download audio (Not available in v3 if you are using)\n\n"
+        "8. **/login**\n"
+        "> Log into the bot for private channel access\n\n"
+        "9. **/batch**\n"
+        "> Bulk extraction for posts (After login)\n\n"
+    ),
+    (
+        "📝 **Bot Commands Overview (2/2)**:\n\n"
+        "10. **/logout**\n"
+        "> Logout from the bot\n\n"
+        "11. **/stats**\n"
+        "> Get bot stats\n\n"
+        "12. **/plan**\n"
+        "> Check premium plans\n\n"
+        "13. **/speedtest**\n"
+        "> Test the server speed (not available in v3)\n\n"
+        "14. **/terms**\n"
+        "> Terms and conditions\n\n"
+        "15. **/cancel**\n"
+        "> Cancel ongoing batch process\n\n"
+        "16. **/myplan**\n"
+        "> Get details about your plans\n\n"
+        "17. **/session**\n"
+        "> Generate Pyrogram V2 session\n\n"
+        "18. **/settings**\n"
+        "> 1. SETCHATID : To directly upload in channel or group or user's dm use it with -100[chatID]\n"
+        "> 2. SETRENAME : To add custom rename tag or username of your channels\n"
+        "> 3. CAPTION : To add custom caption\n"
+        "> 4. REPLACEWORDS : Can be used for words in deleted set via REMOVE WORDS\n"
+        "> 5. RESET : To set the things back to default\n\n"
+        "> You can set CUSTOM THUMBNAIL, PDF WATERMARK, VIDEO WATERMARK, SESSION-based login, etc. from settings\n\n"
+        "**__Powered by Team SPY__**"
+    )
+]
+ 
+async def send_or_edit_help_page(_, message, page_number):
+    if page_number < 0 or page_number >= len(help_pages):
+        return
+     
+    prev_button = InlineKeyboardButton("◀️ Previous", callback_data=f"help_prev_{page_number}")
+    next_button = InlineKeyboardButton("Next ▶️", callback_data=f"help_next_{page_number}")
+     
+    buttons = []
+    if page_number > 0:
+        buttons.append(prev_button)
+    if page_number < len(help_pages) - 1:
+        buttons.append(next_button)
+     
+    keyboard = InlineKeyboardMarkup([buttons])
+     
+    await message.delete()
+     
+    await message.reply(
+        help_pages[page_number],
+        reply_markup=keyboard
+    )
+ 
+@app.on_message(filters.command("help"))
+async def help(client, message):
+    join = await subscribe(client, message)
+    if join == 1:
+        return
+     
+    await send_or_edit_help_page(client, message, 0)
+ 
+@app.on_callback_query(filters.regex(r"help_(prev|next)_(\d+)"))
+async def on_help_navigation(client, callback_query):
+    action, page_number = callback_query.data.split("_")[1], int(callback_query.data.split("_")[2])
+ 
+    if action == "prev":
+        page_number -= 1
+    elif action == "next":
+        page_number += 1
+
+    await send_or_edit_help_page(client, callback_query.message, page_number)
+     
+    await callback_query.answer()
+ 
+@app.on_message(filters.command("terms") & filters.private)
+async def terms(client, message):
+    terms_text = (
+        "> 📜 **Terms and Conditions** 📜\n\n"
+        "✨ We are not responsible for user deeds, and we do not promote copyrighted content. If any user engages in such activities, it is solely their responsibility.\n"
+        "✨ Upon purchase, we do not guarantee the uptime, downtime, or the validity of the plan. __Authorization and banning of users are at our discretion; we reserve the right to ban or authorize users at any time.__\n"
+        "✨ Payment to us **__does not guarantee__** authorization for the /batch command. All decisions regarding authorization are made at our discretion and mood.\n"
+    )
+    await message.reply_text(terms_text)
+ 
+@app.on_message(filters.command("plan") & filters.private)
+async def plan(client, message):
+    plan_text = (
+        "> 💰 **Premium Price**:\n\n Starting from $2 or 200 INR accepted via **__Amazon Gift Card__** (terms and conditions apply).\n"
+        "📥 **Download Limit**: Users can download up to 100,000 files in a single batch command.\n"
+        "🛑 **Batch**: You will get two modes /bulk and /batch.\n"
+        "   - Users are advised to wait for the process to automatically cancel before proceeding with any downloads or uploads.\n\n"
+        "📜 **Terms and Conditions**: For further details and complete terms and conditions, please send /terms.\n"
+    )
+    await message.reply_text(plan_text)
+ 
+@app.on_callback_query(filters.regex("see_plan"))
+async def see_plan(client, callback_query):
+    plan_text = (
+        "> 💰**Premium Price**\n\n Starting from $2 or 200 INR accepted via **__Amazon Gift Card__** (terms and conditions apply).\n"
+        "📥 **Download Limit**: Users can download up to 100,000 files in a single batch command.\n"
+        "🛑 **Batch**: You will get two modes /bulk and /batch.\n"
+        "   - Users are advised to wait for the process to automatically cancel before proceeding with any downloads or uploads.\n\n"
+        "📜 **Terms and Conditions**: For further details and complete terms and conditions, please send /terms or click See Terms👇\n"
+    )
+    await callback_query.message.edit_text(plan_text)
+ 
+@app.on_callback_query(filters.regex("see_terms"))
+async def see_terms(client, callback_query):
+    terms_text = (
+        "> 📜 **Terms and Conditions** 📜\n\n"
+        "✨ We are not responsible for user deeds, and we do not promote copyrighted content. If any user engages in such activities, it is solely their responsibility.\n"
+        "✨ Upon purchase, we do not guarantee the uptime, downtime, or the validity of the plan. __Authorization and banning of users are at our discretion; we reserve the right to ban or authorize users at any time.__\n"
+        "✨ Payment to us **__does not guarantee__** authorization for the /batch command. All decisions regarding authorization are made at our discretion and mood.\n"
+    )
+    await callback_query.message.edit_text(terms_text)
+
