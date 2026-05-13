@@ -241,8 +241,10 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
             ft = f'{proc_text}\n\n{user_cap}' if proc_text and user_cap else user_cap if user_cap else proc_text
             
             if lt == 'public' and not emp.get(i, False):
-                await send_direct(c, m, tcid, ft, rtmid)
-                return 'Sent directly.'
+                if await send_direct(c, m, tcid, ft, rtmid):
+                    return 'Sent directly.'
+                else:
+                    print(f"Direct send failed for {i}, falling back to download/upload.")
             
             st = time.time()
             p = await c.send_message(d, f'正在准备下载 {extra}...')
