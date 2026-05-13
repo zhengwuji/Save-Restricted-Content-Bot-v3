@@ -169,7 +169,9 @@ async def get_msg(c, u, i, d, lt):
 
 async def get_ubot(uid):
     bt = await get_user_data_key(uid, "bot_token", None)
-    if not bt: return None
+    if not bt:
+        from shared_client import app
+        return app
     if uid in UB: return UB.get(uid)
     try:
         bot = Client(f"user_{uid}", bot_token=bt, api_id=API_ID, api_hash=API_HASH)
@@ -178,7 +180,8 @@ async def get_ubot(uid):
         return bot
     except Exception as e:
         print(f"Error starting bot for user {uid}: {e}")
-        return None
+        from shared_client import app
+        return app
 
 async def get_uclient(uid):
     ud = await get_user_data(uid)
@@ -408,8 +411,8 @@ async def process_cmd(c, m):
     
     ubot = await get_ubot(uid)
     if not ubot:
-        await pro.edit('Add your bot with /setbot first')
-        return
+        from shared_client import app
+        ubot = app
     
     Z[uid] = {'step': 'start' if cmd == 'batch' else 'start_single'}
     await pro.edit(f'Send {"start link..." if cmd == "batch" else "link you to process"}.')
@@ -430,12 +433,24 @@ async def cancel_cmd(c, m):
     'pay', 'redeem', 'gencode', 'single', 'generate', 'keyinfo', 'encrypt', 'decrypt', 'keys', 'setbot', 'rembot']))
 async def text_handler(c, m):
     uid = m.from_user.id
-    if uid not in Z: return
+    
+    # Handle direct links without command
+    if uid not in Z:
+        if m.text and ("t.me/" in m.text or "telegram.me/" in m.text):
+            L = m.text
+            i, d, lt = E(L)
+            if i and d:
+                Z[uid] = {'step': 'process_single', 'cid': i, 'sid': d, 'lt': lt}
+            else:
+                return
+        else:
+            return
+
     s = Z[uid].get('step')
     x = await get_ubot(uid)
     if not x:
-        await message.reply("Add your bot /setbot `token`")
-        return
+        await m.reply("Add your bot /setbot `token` or use the default one.")
+        x = c # fallback
 
     if s == 'start':
         L = m.text
@@ -447,23 +462,23 @@ async def text_handler(c, m):
         Z[uid].update({'step': 'count', 'cid': i, 'sid': d, 'lt': lt})
         await m.reply_text('How many messages?')
 
-    elif s == 'start_single':
-        L = m.text
-        i, d, lt = E(L)
-        if not i or not d:
-            await m.reply_text('Invalid link format.')
-            Z.pop(uid, None)
-            return
-
-        Z[uid].update({'step': 'process_single', 'cid': i, 'sid': d, 'lt': lt})
+    elif s == 'start_single' or s == 'process_single':
+        if s == 'start_single':
+            L = m.text
+            i, d, lt = E(L)
+            if not i or not d:
+                await m.reply_text('Invalid link format.')
+                Z.pop(uid, None)
+                return
+            Z[uid].update({'step': 'process_single', 'cid': i, 'sid': d, 'lt': lt})
+        
         i, s, lt = Z[uid]['cid'], Z[uid]['sid'], Z[uid]['lt']
         pt = await m.reply_text('Processing...')
         
-        ubot = UB.get(uid)
+        ubot = await get_ubot(uid)
         if not ubot:
-            await pt.edit('Add bot with /setbot first')
-            Z.pop(uid, None)
-            return
+            from shared_client import app
+            ubot = app
         
         uc = await get_uclient(uid)
         if not uc:
@@ -506,12 +521,15 @@ async def text_handler(c, m):
 
         pt = await m.reply_text('Processing batch...')
         uc = await get_uclient(uid)
-        ubot = UB.get(uid)
+        ubot = await get_ubot(uid)
         
         if not uc or not ubot:
-            await pt.edit('Missing client setup')
-            Z.pop(uid, None)
-            return
+            from shared_client import app
+            ubot = app
+            if not uc:
+                await pt.edit('Missing client setup')
+                Z.pop(uid, None)
+                return
             
         if is_user_active(uid):
             await pt.edit('Active task exists')
