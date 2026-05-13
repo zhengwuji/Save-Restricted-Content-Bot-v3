@@ -89,78 +89,48 @@ async def upd_dlg(c):
 async def get_msg(c, u, i, d, lt):
     try:
         if lt == 'public':
+            # Try fetching with bot client first
             try:
-                if str(i).lower().endswith('bot'):
-                    emp[i] = False
-                    xm = await u.get_messages(i, d)
-                    emp[i] = getattr(xm, "empty", False)
-                    if not emp[i]:
-                        emp[i] = True
-                        print(f"Bot chat found successfully...")
-                        return xm
-                    
-                if emp[i]:
-                    xm = await c.get_messages(i, d)
-                    print(f"fetched by {c.me.username}")
-                    emp[i] = getattr(xm, "empty", False)
-                    if emp[i]:
-                        print(f"Not fetched by {c.me.username}")
-                        try: await u.join_chat(i)
-                        except: pass
-                        xm = await u.get_messages((await u.get_chat(f"@{i}")).id, d)
-                    
-                    return xm                   
-            except Exception as e:
-                print(f'Error fetching public message: {e}')
-                return None
-        else:
+                xm = await c.get_messages(i, d)
+                if xm and not getattr(xm, "empty", False):
+                    return xm
+            except Exception:
+                pass
+            
+            # If bot fails, try with user client
             if u:
                 try:
-                    async for _ in u.get_dialogs(limit=50): pass
+                    xm = await u.get_messages(i, d)
+                    if xm and not getattr(xm, "empty", False):
+                        return xm
+                except Exception:
+                    pass
+            return None
+        else:
+            # Private channel handling
+            if u:
+                try:
+                    # Refresh dialogs to ensure access
+                    # async for _ in u.get_dialogs(limit=20): pass
                     
-                    # Try with -100 prefix first
+                    # Try various ID formats
+                    ids_to_try = [i]
                     if str(i).startswith('-100'):
-                        chat_id_100 = i
-                        # For - prefix, remove -100 and add just -
-                        base_id = str(i)[4:]  # Remove -100
-                        chat_id_dash = f"-{base_id}"
-                    elif i.isdigit():
-                        chat_id_100 = f"-100{i}"
-                        chat_id_dash = f"-{i}"
-                    else:
-                        chat_id_100 = i
-                        chat_id_dash = i
+                        ids_to_try.append(int(i))
+                        ids_to_try.append(int(str(i).replace('-100', '-')))
+                    elif str(i).isdigit():
+                        ids_to_try.append(int(f"-100{i}"))
+                        ids_to_try.append(int(f"-{i}"))
                     
-                    # Try -100 format first
-                    try:
-                        result = await u.get_messages(chat_id_100, d)
-                        if result and not getattr(result, "empty", False):
-                            return result
-                    except Exception:
-                        pass
-                    
-                    # Try - format second
-                    try:
-                        result = await u.get_messages(chat_id_dash, d)
-                        if result and not getattr(result, "empty", False):
-                            return result
-                    except Exception:
-                        pass
-                    
-                    # Final fallback - refresh dialogs and try original
-                    try:
-                        async for _ in u.get_dialogs(limit=200): pass
-                        result = await u.get_messages(i, d)
-                        if result and not getattr(result, "empty", False):
-                            return result
-                    except Exception:
-                        pass
-                    
-                    return None
-                            
+                    for chat_id in ids_to_try:
+                        try:
+                            result = await u.get_messages(chat_id, d)
+                            if result and not getattr(result, "empty", False):
+                                return result
+                        except Exception:
+                            continue
                 except Exception as e:
                     print(f'Private channel error: {e}')
-                    return None
             return None
     except Exception as e:
         print(f'Error fetching message: {e}')
