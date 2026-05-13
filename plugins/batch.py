@@ -462,10 +462,23 @@ async def text_handler(c, m):
             return
 
         try:
-            msg = await get_msg(ubot, uc, i, s, lt)
-            if msg:
-                res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i)
-                await pt.edit(f'1/1: {res}')
+            # Check for media group
+            messages = []
+            try:
+                # Use user client to get media group if possible
+                messages = await uc.get_media_group(i, s)
+            except Exception:
+                # Fallback to single message
+                msg = await get_msg(ubot, uc, i, s, lt)
+                if msg:
+                    messages = [msg]
+
+            if messages:
+                total = len(messages)
+                for index, msg in enumerate(messages):
+                    await pt.edit(f'Processing {index+1}/{total}...')
+                    res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i)
+                await pt.edit(f'Completed: {total} items processed.')
             else:
                 await pt.edit('Message not found')
         except Exception as e:
