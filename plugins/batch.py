@@ -284,7 +284,27 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                 file_name = f"{time.time()}.jpg"
                 c_name = sanitize(file_name)
     
-            f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st, extra, uid))
+            # --- 尝试并行高速下载 ---
+            f = None
+            try:
+                from utils.fast_download import fast_download as parallel_dl, _download_pool
+                if _download_pool:
+                    await c.edit_message_text(d, p.id, f'🚀 并行加速下载 {extra}...',
+                                              reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚫 取消任务", callback_data=f"cancel_{uid}")]]))
+                    f = await parallel_dl(
+                        m, c_name,
+                        progress_callback=prog,
+                        progress_args=(c, d, p.id, st, extra, uid),
+                        cancel_check=lambda: should_cancel(uid),
+                    )
+            except Exception as pe:
+                print(f"Parallel download error: {pe}")
+
+            # --- 回退到普通下载 ---
+            if not f:
+                await c.edit_message_text(d, p.id, f'正在准备下载 {extra}...',
+                                          reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🚫 取消任务", callback_data=f"cancel_{uid}")]]))
+                f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st, extra, uid))
             
             if not f:
                 await c.edit_message_text(d, p.id, '下载失败。')

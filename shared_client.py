@@ -41,5 +41,14 @@ async def start_client():
             sys.exit(1)
     await app.start()
     print("Pyro App Started...")
+
+    # 初始化并行下载工作池
+    if STRING:
+        try:
+            from utils.fast_download import init_download_pool
+            await init_download_pool(API_ID, API_HASH, STRING, num_workers=8)
+        except Exception as e:
+            print(f"Warning: Could not init download pool: {e}")
+
     return client, app, userbot
 
