@@ -488,6 +488,14 @@ async def text_handler(c, m):
             Z.pop(uid, None)
             return
 
+        await add_active_batch(uid, {
+            "total": 0,
+            "current": 0,
+            "success": 0,
+            "cancel_requested": False,
+            "progress_message_id": pt.id
+        })
+
         try:
             # Check for media group
             messages = []
@@ -503,14 +511,23 @@ async def text_handler(c, m):
             if messages:
                 total = len(messages)
                 for index, msg in enumerate(messages):
+                    if should_cancel(uid):
+                        break
                     info = f"第 {index+1}/{total} 个文件"
                     res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i, extra=info)
-                await pt.edit(f'✅ 处理完成：共 {total} 个文件。')
+                    if 'Cancelled' in res:
+                        break
+                
+                if should_cancel(uid):
+                    await pt.delete()
+                else:
+                    await pt.edit(f'✅ 处理完成：共 {total} 个文件。')
             else:
                 await pt.edit('Message not found')
         except Exception as e:
             await pt.edit(f'Error: {str(e)[:50]}')
         finally:
+            await remove_active_batch(uid)
             Z.pop(uid, None)
 
     elif s == 'count':
@@ -601,8 +618,19 @@ async def cancel_callback(c, cb):
     
     if is_user_active(uid):
         await request_batch_cancel(uid)
-        await cb.answer("已请求取消任务，正在停止...", show_alert=True)
-        await cb.message.edit_text(f"{cb.message.text}\n\n🛑 **已请求取消...**")
+        await cb.answer("已取消，正在清理...", show_alert=True)
+        # Delete the progress message immediately
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
+        # Also clear Z state so the user can start a new task right away
+        from plugins.batch import Z
+        Z.pop(uid, None)
+        await remove_active_batch(uid)
     else:
         await cb.answer("没有正在运行的任务。", show_alert=True)
-        await cb.message.delete()
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
