@@ -4,7 +4,7 @@
 
 import os, re, time, asyncio, json, asyncio 
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import UserNotParticipant
 from config import API_ID, API_HASH, LOG_GROUP, STRING, FORCE_SUB, FREEMIUM_LIMIT, PREMIUM_LIMIT
 from utils.func import get_user_data, screenshot, thumbnail, get_video_metadata
@@ -173,7 +173,10 @@ async def get_uclient(uid):
             return ubot if ubot else Y
     return Y
 
-async def prog(c, t, C, h, m, st, extra=""):
+async def prog(c, t, C, h, m, st, extra="", uid=None):
+    if uid and should_cancel(uid):
+        raise Exception("任务已由用户取消")
+    
     global P
     p = c / t * 100
     interval = 10 if t >= 100 * 1024 * 1024 else 20 if t >= 50 * 1024 * 1024 else 30 if t >= 10 * 1024 * 1024 else 50
@@ -194,7 +197,14 @@ async def prog(c, t, C, h, m, st, extra=""):
         status_text += f"⏳ **预计剩余**: `{eta}`\n\n"
         status_text += "**Powered by @cc100g_zhuanfa_bot**"
         
-        await C.edit_message_text(h, m, status_text)
+        reply_markup = None
+        if uid:
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🚫 取消当前任务", callback_data=f"cancel_{uid}")]])
+            
+        try:
+            await C.edit_message_text(h, m, status_text, reply_markup=reply_markup)
+        except Exception:
+            pass
         if p >= 100: P.pop(m, None)
 
 async def send_direct(c, m, tcid, ft=None, rtmid=None):
@@ -222,6 +232,9 @@ async def send_direct(c, m, tcid, ft=None, rtmid=None):
         return False
 
 async def process_msg(c, u, m, d, lt, uid, i, extra=""):
+    # 每次开始前检查是否已取消
+    if should_cancel(uid):
+        return 'Cancelled'
     try:
         cfg_chat = await get_user_data_key(d, 'chat_id', None)
         tcid = d
@@ -247,7 +260,8 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                     print(f"Direct send failed for {i}, falling back to download/upload.")
             
             st = time.time()
-            p = await c.send_message(d, f'正在准备下载 {extra}...')
+            reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("🚫 取消任务", callback_data=f"cancel_{uid}")]])
+            p = await c.send_message(d, f'正在准备下载 {extra}...', reply_markup=reply_markup)
 
             c_name = f"{time.time()}"
             if m.video:
@@ -270,7 +284,7 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                 file_name = f"{time.time()}.jpg"
                 c_name = sanitize(file_name)
     
-            f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st, extra))
+            f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st, extra, uid))
             
             if not f:
                 await c.edit_message_text(d, p.id, '下载失败。')
@@ -307,11 +321,11 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                                         height=h if mtype == 'video' else None,
                                         width=w if mtype == 'video' else None,
                                         caption=ft if m.caption and mtype not in ['video_note', 'voice'] else None, 
-                                        reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra))
+                                        reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra, uid))
                         break
                 else:
                     sent = await Y.send_document(LOG_GROUP, f, thumb=th, caption=ft if m.caption else None,
-                                                reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra))
+                                                reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra, uid))
                 
                 await c.copy_message(d, LOG_GROUP, sent.id)
                 os.remove(f)
@@ -332,19 +346,19 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                     th = await screenshot(f, dur, d)
                     await c.send_video(tcid, video=f, caption=ft if m.caption else None, 
                                     thumb=th, width=w, height=h, duration=dur, 
-                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
+                                        progress=prog, progress_args=(c, d, p.id, st, extra, uid), 
                                         reply_to_message_id=rtmid)
                 elif m.photo:
                     await c.send_photo(tcid, photo=f, caption=ft if m.caption else None, 
-                                    progress=prog, progress_args=(c, d, p.id, st, extra), 
+                                    progress=prog, progress_args=(c, d, p.id, st, extra, uid), 
                                     reply_to_message_id=rtmid)
                 elif m.document:
                     await c.send_document(tcid, document=f, caption=ft if m.caption else None, 
-                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
+                                        progress=prog, progress_args=(c, d, p.id, st, extra, uid), 
                                         reply_to_message_id=rtmid)
                 else:
                     await c.send_document(tcid, document=f, caption=ft if m.caption else None, 
-                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
+                                        progress=prog, progress_args=(c, d, p.id, st, extra, uid), 
                                         reply_to_message_id=rtmid)
             except Exception as e:
                 await c.edit_message_text(d, p.id, f'上传失败: {str(e)[:30]}')
@@ -543,6 +557,9 @@ async def text_handler(c, m):
                         res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i)
                         if 'Done' in res or 'Copied' in res or 'Sent' in res:
                             success += 1
+                        elif 'Cancelled' in res:
+                            await pt.edit(f'❌ 任务已取消。成功: {success}/{n}')
+                            break
                     else:
                         pass
                 except Exception as e:
@@ -560,3 +577,18 @@ async def text_handler(c, m):
 
 
 
+
+@X.on_callback_query(filters.regex(r"^cancel_(\d+)$"))
+async def cancel_callback(c, cb):
+    uid = int(cb.matches[0].group(1))
+    if cb.from_user.id != uid:
+        await cb.answer("这不是您的任务哦 ~", show_alert=True)
+        return
+    
+    if is_user_active(uid):
+        await request_batch_cancel(uid)
+        await cb.answer("已请求取消任务，正在停止...", show_alert=True)
+        await cb.message.edit_text(f"{cb.message.text}\n\n🛑 **已请求取消...**")
+    else:
+        await cb.answer("没有正在运行的任务。", show_alert=True)
+        await cb.message.delete()
