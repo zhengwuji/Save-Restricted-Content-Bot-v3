@@ -362,10 +362,10 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
                                         reply_to_message_id=rtmid)
             except Exception as e:
                 await c.edit_message_text(d, p.id, f'上传失败: {str(e)[:30]}')
-                if os.path.exists(f): os.remove(f)
+                if f and os.path.exists(f): os.remove(f)
                 return 'Failed.'
             
-            os.remove(f)
+            if f and os.path.exists(f): os.remove(f)
             await c.delete_messages(d, p.id)
             
             return 'Done.'
@@ -374,6 +374,20 @@ async def process_msg(c, u, m, d, lt, uid, i, extra=""):
             await c.send_message(tcid, text=m.text.markdown, reply_to_message_id=rtmid)
             return 'Sent.'
     except Exception as e:
+        paths_to_check = []
+        if 'f' in locals() and f:
+            paths_to_check.extend([f, f + ".temp"])
+        if 'c_name' in locals() and c_name:
+            possible_path = os.path.join("downloads", c_name)
+            paths_to_check.extend([possible_path, possible_path + ".temp", c_name, c_name + ".temp"])
+            
+        for path in paths_to_check:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except:
+                    pass
+                    
         return f'Error: {str(e)[:50]}'
         
 @X.on_message(filters.command(['batch', 'single']))
