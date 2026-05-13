@@ -173,7 +173,7 @@ async def get_uclient(uid):
             return ubot if ubot else Y
     return Y
 
-async def prog(c, t, C, h, m, st):
+async def prog(c, t, C, h, m, st, extra=""):
     global P
     p = c / t * 100
     interval = 10 if t >= 100 * 1024 * 1024 else 20 if t >= 50 * 1024 * 1024 else 30 if t >= 10 * 1024 * 1024 else 50
@@ -185,7 +185,16 @@ async def prog(c, t, C, h, m, st):
         bar = '🟢' * int(p / 10) + '🔴' * (10 - int(p / 10))
         speed = c / (time.time() - st) / (1024 * 1024) if time.time() > st else 0
         eta = time.strftime('%M:%S', time.gmtime((t - c) / (speed * 1024 * 1024))) if speed > 0 else '00:00'
-        await C.edit_message_text(h, m, f"__**Pyro Handler...**__\n\n{bar}\n\n⚡**__Completed__**: {c_mb:.2f} MB / {t_mb:.2f} MB\n📊 **__Done__**: {p:.2f}%\n🚀 **__Speed__**: {speed:.2f} MB/s\n⏳ **__ETA__**: {eta}\n\n**__Powered by Team SPY__**")
+        
+        status_text = f"**📥 正在处理 {extra}**\n\n" if extra else "**📥 正在处理...**\n\n"
+        status_text += f"{bar}\n\n"
+        status_text += f"⚡ **已完成**: `{c_mb:.2f} MB` / `{t_mb:.2f} MB`\n"
+        status_text += f"📊 **进度**: `{p:.2f}%`\n"
+        status_text += f"🚀 **速度**: `{speed:.2f} MB/s`\n"
+        status_text += f"⏳ **预计剩余**: `{eta}`\n\n"
+        status_text += "**Powered by @cc100g_zhuanfa_bot**"
+        
+        await C.edit_message_text(h, m, status_text)
         if p >= 100: P.pop(m, None)
 
 async def send_direct(c, m, tcid, ft=None, rtmid=None):
@@ -212,7 +221,7 @@ async def send_direct(c, m, tcid, ft=None, rtmid=None):
         print(f'Direct send error: {e}')
         return False
 
-async def process_msg(c, u, m, d, lt, uid, i):
+async def process_msg(c, u, m, d, lt, uid, i, extra=""):
     try:
         cfg_chat = await get_user_data_key(d, 'chat_id', None)
         tcid = d
@@ -236,7 +245,7 @@ async def process_msg(c, u, m, d, lt, uid, i):
                 return 'Sent directly.'
             
             st = time.time()
-            p = await c.send_message(d, 'Downloading...')
+            p = await c.send_message(d, f'正在准备下载 {extra}...')
 
             c_name = f"{time.time()}"
             if m.video:
@@ -259,13 +268,13 @@ async def process_msg(c, u, m, d, lt, uid, i):
                 file_name = f"{time.time()}.jpg"
                 c_name = sanitize(file_name)
     
-            f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st))
+            f = await u.download_media(m, file_name=c_name, progress=prog, progress_args=(c, d, p.id, st, extra))
             
             if not f:
-                await c.edit_message_text(d, p.id, 'Failed.')
+                await c.edit_message_text(d, p.id, '下载失败。')
                 return 'Failed.'
             
-            await c.edit_message_text(d, p.id, 'Renaming...')
+            await c.edit_message_text(d, p.id, '正在重命名...')
             if (
                 (m.video and m.video.file_name) or
                 (m.audio and m.audio.file_name) or
@@ -278,7 +287,7 @@ async def process_msg(c, u, m, d, lt, uid, i):
             
             if fsize > 2 and Y:
                 st = time.time()
-                await c.edit_message_text(d, p.id, 'File is larger than 2GB. Using alternative method...')
+                await c.edit_message_text(d, p.id, '文件超过 2GB，正在使用大文件模式上传...')
                 await upd_dlg(Y)
                 mtd = await get_video_metadata(f)
                 dur, h, w = mtd['duration'], mtd['width'], mtd['height']
@@ -296,11 +305,11 @@ async def process_msg(c, u, m, d, lt, uid, i):
                                         height=h if mtype == 'video' else None,
                                         width=w if mtype == 'video' else None,
                                         caption=ft if m.caption and mtype not in ['video_note', 'voice'] else None, 
-                                        reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st))
+                                        reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra))
                         break
                 else:
                     sent = await Y.send_document(LOG_GROUP, f, thumb=th, caption=ft if m.caption else None,
-                                                reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st))
+                                                reply_to_message_id=rtmid, progress=prog, progress_args=(c, d, p.id, st, extra))
                 
                 await c.copy_message(d, LOG_GROUP, sent.id)
                 os.remove(f)
@@ -308,7 +317,7 @@ async def process_msg(c, u, m, d, lt, uid, i):
                 
                 return 'Done (Large file).'
             
-            await c.edit_message_text(d, p.id, 'Uploading...')
+            await c.edit_message_text(d, p.id, '正在上传...')
             st = time.time()
 
             try:
@@ -321,34 +330,22 @@ async def process_msg(c, u, m, d, lt, uid, i):
                     th = await screenshot(f, dur, d)
                     await c.send_video(tcid, video=f, caption=ft if m.caption else None, 
                                     thumb=th, width=w, height=h, duration=dur, 
-                                    progress=prog, progress_args=(c, d, p.id, st), 
-                                    reply_to_message_id=rtmid)
-                elif m.video_note:
-                    await c.send_video_note(tcid, video_note=f, progress=prog, 
-                                        progress_args=(c, d, p.id, st), reply_to_message_id=rtmid)
-                elif m.voice:
-                    await c.send_voice(tcid, f, progress=prog, progress_args=(c, d, p.id, st), 
-                                    reply_to_message_id=rtmid)
-                elif m.sticker:
-                    await c.send_sticker(tcid, m.sticker.file_id, reply_to_message_id=rtmid)
-                elif m.audio or (m.document and file_ext in audio_extensions):
-                    await c.send_audio(tcid, audio=f, caption=ft if m.caption else None, 
-                                    thumb=th, progress=prog, progress_args=(c, d, p.id, st), 
-                                    reply_to_message_id=rtmid)
+                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
+                                        reply_to_message_id=rtmid)
                 elif m.photo:
                     await c.send_photo(tcid, photo=f, caption=ft if m.caption else None, 
-                                    progress=prog, progress_args=(c, d, p.id, st), 
+                                    progress=prog, progress_args=(c, d, p.id, st, extra), 
                                     reply_to_message_id=rtmid)
                 elif m.document:
                     await c.send_document(tcid, document=f, caption=ft if m.caption else None, 
-                                        progress=prog, progress_args=(c, d, p.id, st), 
+                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
                                         reply_to_message_id=rtmid)
                 else:
                     await c.send_document(tcid, document=f, caption=ft if m.caption else None, 
-                                        progress=prog, progress_args=(c, d, p.id, st), 
+                                        progress=prog, progress_args=(c, d, p.id, st, extra), 
                                         reply_to_message_id=rtmid)
             except Exception as e:
-                await c.edit_message_text(d, p.id, f'Upload failed: {str(e)[:30]}')
+                await c.edit_message_text(d, p.id, f'上传失败: {str(e)[:30]}')
                 if os.path.exists(f): os.remove(f)
                 return 'Failed.'
             
@@ -476,9 +473,9 @@ async def text_handler(c, m):
             if messages:
                 total = len(messages)
                 for index, msg in enumerate(messages):
-                    await pt.edit(f'Processing {index+1}/{total}...')
-                    res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i)
-                await pt.edit(f'Completed: {total} items processed.')
+                    info = f"第 {index+1}/{total} 个文件"
+                    res = await process_msg(ubot, uc, msg, str(m.chat.id), lt, uid, i, extra=info)
+                await pt.edit(f'✅ 处理完成：共 {total} 个文件。')
             else:
                 await pt.edit('Message not found')
         except Exception as e:
