@@ -469,14 +469,14 @@ async def process_cmd(c, m):
     cmd = m.command[0]
     
     if FREEMIUM_LIMIT == 0 and not await is_premium_user(uid):
-        await m.reply_text("This bot does not provide free servies, get subscription from OWNER")
+        await m.reply_text("❌ **此机器人不提供免费服务**，请联系管理员获取订阅。")
         return
     
     if await sub(c, m) == 1: return
-    pro = await m.reply_text('Doing some checks hold on...')
+    pro = await m.reply_text('🔍 **正在进行预检查，请稍候...**')
     
     if is_user_active(uid):
-        await pro.edit('You have an active task. Use /stop to cancel it.')
+        await pro.edit('⚠️ **您当前已有正在运行的任务**。请使用 /stop 先取消它。')
         return
     
     ubot = await get_ubot(uid)
@@ -485,7 +485,7 @@ async def process_cmd(c, m):
         ubot = app
     
     Z[uid] = {'step': 'start' if cmd == 'batch' else 'start_single'}
-    await pro.edit(f'Send {"start link..." if cmd == "batch" else "link you to process"}.')
+    await pro.edit(f'🔗 **请发送{"起始链接..." if cmd == "batch" else "要处理的链接"}**')
 
 @X.on_message(filters.command(['cancel', 'stop']))
 async def cancel_cmd(c, m):
@@ -523,31 +523,31 @@ async def text_handler(c, m):
     s = Z[uid].get('step')
     x = await get_ubot(uid)
     if not x:
-        await m.reply("Add your bot /setbot `token` or use the default one.")
+        await m.reply("🤖 **请先设置您的机器人 Token**。\n使用 `/setbot [Token]` 或使用默认机器人。")
         x = c # fallback
 
     if s == 'start':
         L = m.text
         i, d, lt = E(L)
         if not i or not d:
-            await m.reply_text('Invalid link format.')
+            await m.reply_text('❌ **链接格式无效。**')
             Z.pop(uid, None)
             return
         Z[uid].update({'step': 'count', 'cid': i, 'sid': d, 'lt': lt})
-        await m.reply_text('How many messages?')
+        await m.reply_text('🔢 **请输入要搬运的消息数量：**')
 
     elif s == 'start_single' or s == 'process_single':
         if s == 'start_single':
             L = m.text
             i, d, lt = E(L)
             if not i or not d:
-                await m.reply_text('Invalid link format.')
+                await m.reply_text('❌ **链接格式无效。**')
                 Z.pop(uid, None)
                 return
             Z[uid].update({'step': 'process_single', 'cid': i, 'sid': d, 'lt': lt})
         
         i, s, lt = Z[uid]['cid'], Z[uid]['sid'], Z[uid]['lt']
-        pt = await m.reply_text('Processing...')
+        pt = await m.reply_text('⏳ **正在提取并处理...**')
         
         ubot = await get_ubot(uid)
         if not ubot:
@@ -556,7 +556,7 @@ async def text_handler(c, m):
         
         uc = await get_uclient(uid)
         if not uc:
-            await pt.edit('Cannot proceed without user client.')
+            await pt.edit('❌ **无法继续：未检测到 User Client (电报账号登录状态)。**')
             Z.pop(uid, None)
             return
             

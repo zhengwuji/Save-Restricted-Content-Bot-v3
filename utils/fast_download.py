@@ -40,6 +40,7 @@ async def init_download_pool(api_id, api_hash, session_string, num_workers=NUM_W
             session_string=session_string,
             no_updates=True,  # 不接收更新，节省资源
             workers=1,
+            ipv6=True
         )
         tasks.append(wc.start())
         _download_pool.append(wc)

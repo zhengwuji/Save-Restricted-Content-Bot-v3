@@ -33,52 +33,36 @@ async def set(_, message):
  
 help_pages = [
     (
-        "📝 **Bot Commands Overview (1/2)**:\n\n"
-        "1. **/add userID**\n"
-        "> Add user to premium (Owner only)\n\n"
-        "2. **/rem userID**\n"
-        "> Remove user from premium (Owner only)\n\n"
-        "3. **/transfer userID**\n"
-        "> Transfer premium to your beloved major purpose for resellers (Premium members only)\n\n"
-        "4. **/get**\n"
-        "> Get all user IDs (Owner only)\n\n"
-        "5. **/lock**\n"
-        "> Lock channel from extraction (Owner only)\n\n"
-        "6. **/dl link**\n"
-        "> Download videos (Not available in v3 if you are using)\n\n"
-        "7. **/adl link**\n"
-        "> Download audio (Not available in v3 if you are using)\n\n"
-        "8. **/login**\n"
-        "> Log into the bot for private channel access\n\n"
-        "9. **/batch**\n"
-        "> Bulk extraction for posts (After login)\n\n"
+        "📝 **机器人指令概览 (1/2)**:\n\n"
+        "1. **/login**\n"
+        "> 登录您的电报账号。登录后可以抓取您加入的**私有频道**内容。\n\n"
+        "2. **/batch**\n"
+        "> **批量抓取**。发送起始链接和结束链接，机器人会自动搬运期间的所有内容。\n\n"
+        "3. **/dl [链接]**\n"
+        "> **全网视频下载**。支持 YouTube, TikTok, Instagram, Twitter 等数千个网站。直接发送链接也可触发。\n\n"
+        "4. **/adl [链接]**\n"
+        "> **音频提取**。下载视频并自动转换成 MP3 格式，带封面和元数据。\n\n"
+        "5. **/music [关键词或链接]**\n"
+        "> **音乐搜索**。支持输入歌名或 **Spotify 链接**。机器人会自动搜索并以 **320kbps 极高音质**下载音频。\n\n"
+        "6. **/settings**\n"
+        "> **个人设置中心**。配置自定义重命名、自定义后缀、视频水印、转发目标频道等。\n\n"
+        "7. **/stats**\n"
+        "> 查看机器人的当前运行状态和您的使用统计。\n\n"
     ),
     (
-        "📝 **Bot Commands Overview (2/2)**:\n\n"
-        "10. **/logout**\n"
-        "> Logout from the bot\n\n"
-        "11. **/stats**\n"
-        "> Get bot stats\n\n"
-        "12. **/plan**\n"
-        "> Check premium plans\n\n"
-        "13. **/speedtest**\n"
-        "> Test the server speed (not available in v3)\n\n"
-        "14. **/terms**\n"
-        "> Terms and conditions\n\n"
-        "15. **/cancel**\n"
-        "> Cancel ongoing batch process\n\n"
-        "16. **/myplan**\n"
-        "> Get details about your plans\n\n"
-        "17. **/session**\n"
-        "> Generate Pyrogram V2 session\n\n"
-        "18. **/settings**\n"
-        "> 1. SETCHATID : To directly upload in channel or group or user's dm use it with -100[chatID]\n"
-        "> 2. SETRENAME : To add custom rename tag or username of your channels\n"
-        "> 3. CAPTION : To add custom caption\n"
-        "> 4. REPLACEWORDS : Can be used for words in deleted set via REMOVE WORDS\n"
-        "> 5. RESET : To set the things back to default\n\n"
-        "> You can set CUSTOM THUMBNAIL, PDF WATERMARK, VIDEO WATERMARK, SESSION-based login, etc. from settings\n\n"
-        "**__Powered by Team SPY__**"
+        "📝 **机器人指令概览 (2/2)**:\n\n"
+        "8. **/cancel** 或 **/stop**\n"
+        "> **停止任务**。立即取消当前的批量搬运或下载任务。\n\n"
+        "9. **/logout**\n"
+        "> 退出登录并清除您的 Session 数据。\n\n"
+        "10. **/myplan**\n"
+        "> 查看您的会员状态和额度详情。\n\n"
+        "⚙️ **进阶设置说明 (/settings)**:\n"
+        "- **SETCHATID**: 设置转发目标，文件处理完后会自动发到该频道。\n"
+        "- **SETRENAME**: 设置全局重命名规则，支持正则替换。\n"
+        "- **CAPTION**: 设置自定义文案，支持保留原始文案或完全替换。\n"
+        "- **VIDEO WATERMARK**: 为所有转发的视频添加您的专属图片水印。\n\n"
+        "**__由 Antigravity 强力驱动__**"
     )
 ]
  
@@ -86,8 +70,8 @@ async def send_or_edit_help_page(_, message, page_number):
     if page_number < 0 or page_number >= len(help_pages):
         return
      
-    prev_button = InlineKeyboardButton("◀️ Previous", callback_data=f"help_prev_{page_number}")
-    next_button = InlineKeyboardButton("Next ▶️", callback_data=f"help_next_{page_number}")
+    prev_button = InlineKeyboardButton("◀️ 上一页", callback_data=f"help_prev_{page_number}")
+    next_button = InlineKeyboardButton("下一页 ▶️", callback_data=f"help_next_{page_number}")
      
     buttons = []
     if page_number > 0:

@@ -83,8 +83,8 @@ async def process_audio(client, event, url, cookies_env_var=None):
         cookies = cookies_env_var
  
     temp_cookie_path = None
-    if cookies:
-        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_cookie_file:
+    if cookies and isinstance(cookies, str) and "# Netscape HTTP Cookie File" in cookies:
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', encoding='utf-8') as temp_cookie_file:
             temp_cookie_file.write(cookies)
             temp_cookie_path = temp_cookie_file.name
  
@@ -96,20 +96,29 @@ async def process_audio(client, event, url, cookies_env_var=None):
         'format': 'bestaudio/best',
         'outtmpl': f"{random_filename}.%(ext)s",
         'cookiefile': temp_cookie_path,
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'}],
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '320'}],
         'quiet': False,
         'noplaylist': True,
+        'ffmpeg_location': '/usr/bin',
     }
     prog = None
  
-    progress_message = await event.reply("**__Starting audio extraction...__**")
+    progress_message = await event.reply("🎵 **正在提取音频... 请稍候**")
  
     try:
-         
-        info_dict = await extract_audio_async(ydl_opts, url)
-        title = info_dict.get('title', 'Extracted Audio')
+        try:
+            info_dict = await extract_audio_async(ydl_opts, url)
+        except Exception as e:
+            if "Netscape format cookies file" in str(e):
+                logger.warning("Invalid cookies detected, retrying without cookies.")
+                ydl_opts['cookiefile'] = None
+                info_dict = await extract_audio_async(ydl_opts, url)
+            else:
+                raise e
+
+        title = info_dict.get('title', '提取的音频')
  
-        await progress_message.edit("**__Editing metadata...__**")
+        await progress_message.edit("🏷️ **正在写入歌曲信息 (元数据)...**")
  
          
         if os.path.exists(download_path):
@@ -119,9 +128,18 @@ async def process_audio(client, event, url, cookies_env_var=None):
                     audio_file.add_tags()
                 except Exception:
                     pass
+                # Improve artist extraction
+                artist = info_dict.get('artist') or info_dict.get('uploader') or info_dict.get('channel') or info_dict.get('creator')
+                
+                # If still missing, try parsing from title (Artist - Song)
+                if not artist and " - " in title:
+                    artist = title.split(" - ", 1)[0]
+                
+                if not artist:
+                    artist = "网络"
+                
                 audio_file.tags["TIT2"] = TIT2(encoding=3, text=title)
-                audio_file.tags["TPE1"] = TPE1(encoding=3, text="Team SPY")
-                audio_file.tags["COMM"] = COMM(encoding=3, lang="eng", desc="Comment", text="Processed by Team SPY")
+                audio_file.tags["TPE1"] = TPE1(encoding=3, text=artist)
  
                 thumbnail_url = info_dict.get('thumbnail')
                 if thumbnail_url:
@@ -142,22 +160,25 @@ async def process_audio(client, event, url, cookies_env_var=None):
         chat_id = event.chat_id
         if os.path.exists(download_path):
             await progress_message.delete()
-            prog = await client.send_message(chat_id, "**__Starting Upload...__**")
+            prog = await client.send_message(chat_id, "📤 **正在高速上传音频...**")
             uploaded = await fast_upload(
                 client, download_path, 
                 reply=prog, 
                 name=None,
                 progress_bar_function=lambda done, total: progress_callback(done, total, chat_id)
             )
-            await client.send_file(chat_id, uploaded, caption=f"**{title}**\n\n**__Powered by Team SPY__**")
+            extractor = info_dict.get('extractor_key', 'YouTube')
+            if extractor.lower() in ["youtube", "youtubesearch"]:
+                extractor = "YouTube"
+            await client.send_file(chat_id, uploaded, caption=f"🎧 **{title}**\n\n来源平台: **{extractor}**")
             if prog:
                 await prog.delete()
         else:
-            await event.reply("**__Audio file not found after extraction!__**")
+            await event.reply("❌ **音频提取失败：未找到生成的文件。**")
  
     except Exception as e:
         logger.exception("Error during audio extraction or upload")
-        await event.reply(f"**__An error occurred: {e}__**")
+        await event.reply(f"❌ **发生错误:** `{e}`")
     finally:
         if os.path.exists(download_path):
             os.remove(download_path)
@@ -165,14 +186,14 @@ async def process_audio(client, event, url, cookies_env_var=None):
             os.remove(temp_cookie_path)
  
 @client.on(events.NewMessage(pattern="/adl"))
-async def handler(event):
+async def adl_handler(event):
     user_id = event.sender_id
     if user_id in ongoing_downloads:
-        await event.reply("**You already have an ongoing download. Please wait until it completes!**")
+        await event.reply("⚠️ **您当前已有正在运行的任务，请稍候。**")
         return
  
     if len(event.message.text.split()) < 2:
-        await event.reply("**Usage:** `/adl <video-link>`\n\nPlease provide a valid video link!")
+        await event.reply("❌ **格式错误！**\n使用方法: `/adl [视频链接]`")
         return    
  
     url = event.message.text.split()[1]
@@ -180,13 +201,13 @@ async def handler(event):
  
     try:
         if "instagram.com" in url:
-            await process_audio(client, event, url, cookies_env_var="INSTA_COOKIES")
+            await process_audio(client, event, url, cookies_env_var=INSTA_COOKIES)
         elif "youtube.com" in url or "youtu.be" in url:
-            await process_audio(client, event, url, cookies_env_var="YT_COOKIES")
+            await process_audio(client, event, url, cookies_env_var=YT_COOKIES)
         else:
             await process_audio(client, event, url)
     except Exception as e:
-        await event.reply(f"**An error occurred:** `{e}`")
+        await event.reply(f"❌ **发生错误:** `{str(e)}`")
     finally:
         ongoing_downloads.pop(user_id, None)
  
@@ -205,7 +226,7 @@ async def fetch_video_info(url, ydl_opts, progress_message, check_duration_and_s
              
             estimated_size = info_dict.get('filesize_approx', 0)
             if estimated_size and estimated_size > 2 * 1024 * 1024 * 1024:   
-                await progress_message.edit("**🤞 __Video size is larger than 2GB. Aborting download.__**")
+                await progress_message.edit("**🤞 __视频超过2GB，已中止下载。__**")
                 return None
  
         return info_dict
@@ -214,38 +235,54 @@ def download_video(url, ydl_opts):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
  
- 
 @client.on(events.NewMessage(pattern="/dl"))
-async def handler(event):
+async def dl_handler(event):
     user_id = event.sender_id
- 
-     
     if user_id in ongoing_downloads:
-        await event.reply("**You already have an ongoing ytdlp download. Please wait until it completes!**")
+        await event.reply("⚠️ **您当前已有正在运行的任务，请稍候。**")
         return
  
     if len(event.message.text.split()) < 2:
-        await event.reply("**Usage:** `/dl <video-link>`\n\nPlease provide a valid video link!")
+        await event.reply("❌ **格式错误！**\n使用方法: `/dl [视频链接]`")
         return    
  
     url = event.message.text.split()[1]
+    ongoing_downloads[user_id] = True
  
-     
     try:
         if "instagram.com" in url:
-            await process_video(client, event, url, "INSTA_COOKIES", check_duration_and_size=False)
+            await process_video(client, event, url, INSTA_COOKIES, check_duration_and_size=False)
         elif "youtube.com" in url or "youtu.be" in url:
-            await process_video(client, event, url, "YT_COOKIES", check_duration_and_size=True)
+            await process_video(client, event, url, YT_COOKIES, check_duration_and_size=True)
         else:
             await process_video(client, event, url, None, check_duration_and_size=False)
- 
     except Exception as e:
-        await event.reply(f"**An error occurred:** `{e}`")
+        await event.reply(f"❌ **发生错误:** `{str(e)}`")
     finally:
-         
         ongoing_downloads.pop(user_id, None)
- 
- 
+
+@client.on(events.NewMessage(pattern="/music"))
+async def music_handler(event):
+    user_id = event.sender_id
+    if user_id in ongoing_downloads:
+        await event.reply("⚠️ **您当前已有正在运行的任务，请稍候。**")
+        return
+    
+    args = event.message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await event.reply("❌ **请输入歌名或关键词！**\n使用方法: `/music [歌名]`\n例如: `/music 求佛`")
+        return
+    
+    query = args[1]
+    ongoing_downloads[user_id] = True
+    search_url = f"ytsearch1:{query}"
+    
+    try:
+        await process_audio(client, event, search_url, cookies_env_var=YT_COOKIES)
+    except Exception as e:
+        await event.reply(f"❌ **搜索/下载失败:** `{str(e)}`")
+    finally:
+        ongoing_downloads.pop(user_id, None)
  
  
 user_progress = {}
@@ -299,11 +336,11 @@ def progress_callback(done, total, user_id):
         f"├──────────\n"
         f"│ {progress_bar}\n\n"
         f"│ **__Progress:__** {percent:.2f}%\n"
-        f"│ **__Done:__** {done_mb:.2f} MB / {total_mb:.2f} MB\n"
-        f"│ **__Speed:__** {speed_mbps:.2f} Mbps\n"
-        f"│ **__Time Remaining:__** {remaining_time_min:.2f} min\n"
+        f"│ **__已完成:__** {done_mb:.2f} MB / {total_mb:.2f} MB\n"
+        f"│ **__速度:__** {speed_mbps:.2f} Mbps\n"
+        f"│ **__剩余时间:__** {remaining_time_min:.2f} 分钟\n"
         f"╰──────────────────╯\n\n"
-        f"**__Powered by Team SPY__**"
+        f"**__正在处理您的请求...__**"
     )
  
      
@@ -327,8 +364,8 @@ async def process_video(client, event, url, cookies_env_var, check_duration_and_
  
      
     temp_cookie_path = None
-    if cookies:
-        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_cookie_file:
+    if cookies and isinstance(cookies, str) and "# Netscape HTTP Cookie File" in cookies:
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt', encoding='utf-8') as temp_cookie_file:
             temp_cookie_file.write(cookies)
             temp_cookie_path = temp_cookie_file.name
         logger.info(f"Created temporary cookie file at: {temp_cookie_path}")
@@ -344,17 +381,35 @@ async def process_video(client, event, url, cookies_env_var, check_duration_and_
         'cookiefile': temp_cookie_path if temp_cookie_path else None,
         'writethumbnail': True,
         'verbose': True,
+        'ffmpeg_location': '/usr/bin',
     }
     prog = None
-    progress_message = await event.reply("**__Starting download...__**")
+    
+    async def reply(text):
+        if hasattr(event, 'reply'): 
+            return await event.reply(text)
+        else: 
+            return await event.reply_text(text)
+
+    progress_message = await reply("📥 **正在开始下载... 请稍候**")
     logger.info("Starting the download process...")
     try:
-        info_dict = await fetch_video_info(url, ydl_opts, progress_message, check_duration_and_size)
-        if not info_dict:
-            return
-         
-        await asyncio.to_thread(download_video, url, ydl_opts)
-        title = info_dict.get('title', 'Powered by Team SPY')
+        try:
+            info_dict = await fetch_video_info(url, ydl_opts, progress_message, check_duration_and_size)
+            if not info_dict:
+                return
+            await asyncio.to_thread(download_video, url, ydl_opts)
+        except Exception as e:
+            if "Netscape format cookies file" in str(e):
+                logger.warning("Invalid cookies detected, retrying without cookies.")
+                ydl_opts['cookiefile'] = None
+                info_dict = await fetch_video_info(url, ydl_opts, progress_message, check_duration_and_size)
+                if not info_dict:
+                    return
+                await asyncio.to_thread(download_video, url, ydl_opts)
+            else:
+                raise e
+        title = info_dict.get('title', '视频下载成功')
         k = await get_video_metadata(download_path)      
         W = k['width']
         H = k['height']
@@ -372,49 +427,68 @@ async def process_video(client, event, url, cookies_env_var, check_duration_and_
             if downloaded_thumb:
                 logger.info(f"Thumbnail saved at: {downloaded_thumb}")
  
+        sender_id = event.sender_id if hasattr(event, 'sender_id') else event.from_user.id
         if thumbnail_file:
             THUMB = thumbnail_file
         else:
-            THUMB = await screenshot(download_path, metadata['duration'], event.sender_id)
+            THUMB = await screenshot(download_path, metadata['duration'], sender_id)
 
-        chat_id = event.chat_id
+        chat_id = event.chat_id if hasattr(event, 'chat_id') else event.chat.id
         SIZE = 2 * 1024 * 1024
-        caption = f"{title}"
-     
+        
         if os.path.exists(download_path) and os.path.getsize(download_path) > SIZE:
-            prog = await client.send_message(chat_id, "**__Starting Upload...__**")
-            await split_and_upload_file(app, chat_id, download_path, caption)
+            prog = await reply("🚀 **文件较大，正在分段上传中...**")
+            await split_and_upload_file(app, chat_id, download_path, title)
             await prog.delete()
          
         if os.path.exists(download_path):
             await progress_message.delete()
-            prog = await client.send_message(chat_id, "**__Starting Upload...__**")
+            prog = await reply("📤 **正在高速上传到电报...**")
+            
+            from pyrogram.types import DocumentAttributeVideo as PyroVideo
+            
             uploaded = await fast_upload(
                 client, download_path,
                 reply=prog,
                 progress_bar_function=lambda done, total: progress_callback(done, total, chat_id)
             )
-            await client.send_file(
-                event.chat_id,
-                uploaded,
-                caption=f"**{title}**",
-                attributes=[
-                    DocumentAttributeVideo(
-                        duration=metadata['duration'],
-                        w=metadata['width'],
-                        h=metadata['height'],
-                        supports_streaming=True
-                    )
-                ],
-                thumb=THUMB if THUMB else None
-            )
+            
+            if hasattr(event, 'sender_id'): 
+                await client.send_file(
+                    chat_id,
+                    uploaded,
+                    caption=f"**{title}**",
+                    attributes=[
+                        DocumentAttributeVideo(
+                            duration=metadata['duration'],
+                            w=metadata['width'],
+                            h=metadata['height'],
+                            supports_streaming=True
+                        )
+                    ],
+                    thumb=THUMB if THUMB else None
+                )
+            else: 
+                await app.send_video(
+                    chat_id,
+                    video=download_path,
+                    caption=f"**{title}**",
+                    duration=metadata['duration'],
+                    width=metadata['width'],
+                    height=metadata['height'],
+                    thumb=THUMB if THUMB else None,
+                    progress=progress_bar,
+                    progress_args=("📤 **正在上传视频...**", prog, time.time())
+                )
+
             if prog:
-                await prog.delete()
+                try: await prog.delete()
+                except: pass
         else:
-            await event.reply("**__File not found after download. Something went wrong!__**")
+            await reply("❌ **下载失败：未找到生成的文件。**")
     except Exception as e:
         logger.exception("An error occurred during download or upload.")
-        await event.reply(f"**__An error occurred: {e}__**")
+        await reply(f"❌ **发生错误:** `{str(e)}`")
     finally:
          
         if os.path.exists(download_path):
@@ -423,15 +497,37 @@ async def process_video(client, event, url, cookies_env_var, check_duration_and_
             os.remove(temp_cookie_path)
         if thumbnail_file and os.path.exists(thumbnail_file):
             os.remove(thumbnail_file)
- 
+
+from pyrogram import filters
+from shared_client import app as pyro_app
+
+@pyro_app.on_message(filters.regex(r"https?://(www\.)?(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|twitter\.com|x\.com|facebook\.com|terabox\.com|spotify\.com)") & filters.private)
+async def auto_ytdl(c, m):
+    user_id = m.from_user.id
+    if user_id in ongoing_downloads:
+        await m.reply_text("⚠️ **您当前已有正在运行的任务，请稍候。**")
+        return
+    
+    url = m.text
+    ongoing_downloads[user_id] = True
+    try:
+        from shared_client import client as telethon_client
+        if "instagram.com" in url:
+            await process_video(telethon_client, m, url, INSTA_COOKIES, check_duration_and_size=False)
+        elif "youtube.com" in url or "youtu.be" in url:
+            await process_video(telethon_client, m, url, YT_COOKIES, check_duration_and_size=True)
+        else:
+            await process_video(telethon_client, m, url, None, check_duration_and_size=False)
+    finally:
+        ongoing_downloads.pop(user_id, None)
 
 async def split_and_upload_file(app, sender, file_path, caption):
     if not os.path.exists(file_path):
-        await app.send_message(sender, "❌ File not found!")
+        await app.send_message(sender, "❌ 未找到文件！")
         return
 
     file_size = os.path.getsize(file_path)
-    start = await app.send_message(sender, f"ℹ️ File size: {file_size / (1024 * 1024):.2f} MB")
+    start = await app.send_message(sender, f"ℹ️ **文件体积:** {file_size / (1024 * 1024):.2f} MB")
     PART_SIZE =  1.9 * 1024 * 1024 * 1024
 
     part_number = 0
@@ -450,11 +546,11 @@ async def split_and_upload_file(app, sender, file_path, caption):
                 await part_f.write(chunk)
 
             # Uploading part
-            edit = await app.send_message(sender, f"⬆️ Uploading part {part_number + 1}...")
-            part_caption = f"{caption} \n\n**Part : {part_number + 1}**"
+            edit = await app.send_message(sender, f"⬆️ **正在上传分段 {part_number + 1}...**")
+            part_caption = f"{caption} \n\n**分段 : {part_number + 1}**"
             await app.send_document(sender, document=part_file, caption=part_caption,
                 progress=progress_bar,
-                progress_args=("╭─────────────────────╮\n│      **__Pyro Uploader__**\n├─────────────────────", edit, time.time())
+                progress_args=("╭─────────────────────╮\n│      **分段上传中**\n├─────────────────────", edit, time.time())
             )
             await edit.delete()
             os.remove(part_file)
@@ -466,10 +562,10 @@ async def split_and_upload_file(app, sender, file_path, caption):
 
 
 PROGRESS_BAR = """
-│ **__Completed:__** {1}/{2}
-│ **__Bytes:__** {0}%
-│ **__Speed:__** {3}/s
-│ **__ETA:__** {4}
+│ **__进度:__** {0}%
+│ **__完成:__** {1}/{2}
+│ **__速度:__** {3}/s
+│ **__预计剩余:__** {4}
 ╰─────────────────────╯
 """
 

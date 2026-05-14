@@ -11,7 +11,7 @@ client = TelegramClient("telethonbot", API_ID, API_HASH)
 # 增加 workers 和并发数，显著提升大文件下载/上传速度
 app = Client(
     "pyrogrambot", 
-    ipv6=False, 
+    ipv6=True, 
     api_id=API_ID, 
     api_hash=API_HASH, 
     bot_token=BOT_TOKEN,
@@ -20,7 +20,7 @@ app = Client(
 )
 userbot = Client(
     "4gbbot", 
-    ipv6=False, 
+    ipv6=True, 
     api_id=API_ID, 
     api_hash=API_HASH, 
     session_string=STRING,

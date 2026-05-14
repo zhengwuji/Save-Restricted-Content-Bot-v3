@@ -16,7 +16,7 @@ logger = logging.getLogger('teamspy')
 @bot_client.on(events.NewMessage(pattern='/status'))
 async def status_handler(event):
     if not await is_private_chat(event):
-        await event.respond("This command can only be used in private chats for security reasons.")
+        await event.respond("❌ 为了安全起见，此指令只能在私信中使用。")
         return
     
     """Handle /status command to check user session and bot status"""
@@ -34,26 +34,25 @@ async def status_handler(event):
         bot_active = True
     
     # Add premium status check
-    premium_status = "❌ Not a premium member"
+    premium_status = "❌ 您目前还不是会员"
     premium_details = await get_premium_details(user_id)
     if premium_details:
-        # Convert to IST timezone
+        # Convert to IST timezone (or just show directly)
         expiry_utc = premium_details["subscription_end"]
-        expiry_ist = expiry_utc + timedelta(hours=5, minutes=30)
-        formatted_expiry = expiry_ist.strftime("%d-%b-%Y %I:%M:%S %p")
-        premium_status = f"✅ Premium until {formatted_expiry} (IST)"
+        formatted_expiry = expiry_utc.strftime("%Y-%m-%d %H:%M:%S")
+        premium_status = f"✅ 会员有效期至: {formatted_expiry}"
     
     await event.respond(
-        "**Your current status:**\n\n"
-        f"**Login Status:** {'✅ Active' if session_active else '❌ Inactive'}\n"
-        f"**Premium:** {premium_status}"
+        "📊 **您的当前状态:**\n\n"
+        f"**登录状态:** {'✅ 已登录' if session_active else '❌ 未登录'}\n"
+        f"**会员状态:** {premium_status}"
     )
 
 @bot_client.on(events.NewMessage(pattern='/transfer'))
 async def transfer_premium_handler(event):
     if not await is_private_chat(event):
         await event.respond(
-            'This command can only be used in private chats for security reasons.'
+            '❌ 为了安全起见，此指令只能在私信中使用。'
             )
         return
     user_id = event.sender_id
@@ -61,12 +60,12 @@ async def transfer_premium_handler(event):
     sender_name = get_display_name(sender)
     if not await is_premium_user(user_id):
         await event.respond(
-            "❌ You don't have a premium subscription to transfer.")
+            "❌ 您没有可转让的会员资格。")
         return
     args = event.text.split()
     if len(args) != 2:
         await event.respond(
-            'Usage: /transfer user_id\nExample: /transfer 123456789')
+            '📝 **使用方法:** `/transfer [用户ID]`\n例如: `/transfer 123456789`')
         return
     try:
         target_user_id = int(args[1])

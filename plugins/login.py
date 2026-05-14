@@ -29,8 +29,7 @@ async def login_command(client, message):
     login_cache.pop(user_id, None)
     await message.delete()
     status_msg = await message.reply(
-        """Please send your phone number with country code
-Example: `+12345678900`"""
+        """📱 **请输入带国家代码的手机号**\n例如: `+8613812345678`"""
         )
     login_cache[user_id] = {'status_msg': status_msg}
     
@@ -57,12 +56,12 @@ async def set_bot_token(C, m):
             del UB[user_id]  # Remove from dictionary
 
     if len(args) < 2:
-        await m.reply_text("⚠️ Please provide a bot token. Usage: `/setbot token`", quote=True)
+        await m.reply_text("⚠️ **请提供机器人 Token**。\n使用方法: `/setbot [Token]`", quote=True)
         return
 
     bot_token = args[1].strip()
     await save_user_bot(user_id, bot_token)
-    await m.reply_text("✅ Bot token saved successfully.", quote=True)
+    await m.reply_text("✅ **机器人 Token 保存成功！**", quote=True)
     
     
 @bot.on_message(filters.command("rembot"))
@@ -112,10 +111,10 @@ async def handle_login_steps(client, message):
         if step == STEP_PHONE:
             if not text.startswith('+'):
                 await edit_message_safely(status_msg,
-                    '❌ Please provide a valid phone number starting with +')
+                    '❌ **手机号格式错误！** 请确保以 + 开头（如 +86）。')
                 return
             await edit_message_safely(status_msg,
-                '🔄 Processing phone number...')
+                '🔄 **正在处理手机号...**')
             temp_client = Client(f'temp_{user_id}', api_id=API_ID, api_hash
                 =API_HASH, device_model=model, in_memory=True)
             try:
@@ -127,14 +126,11 @@ async def handle_login_steps(client, message):
                 login_cache[user_id]['temp_client'] = temp_client
                 set_user_step(user_id, STEP_CODE)
                 await edit_message_safely(status_msg,
-                    """✅ Verification code sent to your Telegram account.
-                    
-Please enter the code you received like 1 2 3 4 5 (i.e seperated by space):"""
+                    """✅ **验证码已发送到您的电报账号。**\n\n请输入您收到的 5 位验证码，数字之间用空格隔开（例如：`1 2 3 4 5`）："""
                     )
             except BadRequest as e:
                 await edit_message_safely(status_msg,
-                    f"""❌ Error: {str(e)}
-Please try again with /login.""")
+                    f"""❌ **错误:** {str(e)}\n请使用 /login 重新尝试。""")
                 await temp_client.disconnect()
                 set_user_step(user_id, None)
         elif step == STEP_CODE:
@@ -143,7 +139,7 @@ Please try again with /login.""")
             phone_code_hash = login_cache[user_id]['phone_code_hash']
             temp_client = login_cache[user_id]['temp_client']
             try:
-                await edit_message_safely(status_msg, '🔄 Verifying code...')
+                await edit_message_safely(status_msg, '🔄 **正在验证代码...**')
                 await temp_client.sign_in(phone, phone_code_hash, code)
                 session_string = await temp_client.export_session_string()
                 encrypted_session = ecs(session_string)
@@ -153,14 +149,13 @@ Please try again with /login.""")
                 login_cache.pop(user_id, None)
                 login_cache[user_id] = {'status_msg': temp_status_msg}
                 await edit_message_safely(status_msg,
-                    """✅ Logged in successfully!!"""
+                    """✅ **登录成功！您现在可以搬运私有频道内容了。**"""
                     )
                 set_user_step(user_id, None)
             except SessionPasswordNeeded:
                 set_user_step(user_id, STEP_PASSWORD)
                 await edit_message_safely(status_msg,
-                    """🔒 Two-step verification is enabled.
-Please enter your password:"""
+                    """🔒 **您的账号开启了两步验证。**\n请输入您的两步验证密码："""
                     )
             except (PhoneCodeInvalid, PhoneCodeExpired) as e:
                 await edit_message_safely(status_msg,
@@ -219,26 +214,26 @@ async def cancel_command(client, message):
         set_user_step(user_id, None)
         if status_msg:
             await edit_message_safely(status_msg,
-                '✅ Login process cancelled. Use /login to start again.')
+                '✅ **登录已取消。** 使用 /login 重新开始。')
         else:
             temp_msg = await message.reply(
-                '✅ Login process cancelled. Use /login to start again.')
+                '✅ **登录已取消。**')
             await temp_msg.delete(5)
     else:
-        temp_msg = await message.reply('No active login process to cancel.')
+        temp_msg = await message.reply('❌ **目前没有正在进行的登录任务。**')
         await temp_msg.delete(5)
         
 @bot.on_message(filters.command('logout'))
 async def logout_command(client, message):
     user_id = message.from_user.id
     await message.delete()
-    status_msg = await message.reply('🔄 Processing logout request...')
+    status_msg = await message.reply('🔄 **正在处理登出请求...**')
     try:
         session_data = await get_user_data(user_id)
         
         if not session_data or 'session_string' not in session_data:
             await edit_message_safely(status_msg,
-                '❌ No active session found for your account.')
+                '❌ **未找到活跃的 Session 会话。**')
             return
         encss = session_data['session_string']
         session_string = dcs(encss)
@@ -248,19 +243,18 @@ async def logout_command(client, message):
             await temp_client.connect()
             await temp_client.log_out()
             await edit_message_safely(status_msg,
-                '✅ Telegram session terminated successfully. Removing from database...'
+                '✅ **电报 Session 已成功注销。正在从数据库移除...**'
                 )
         except Exception as e:
             logger.error(f'Error terminating session: {str(e)}')
             await edit_message_safely(status_msg,
-                f"""⚠️ Error terminating Telegram session: {str(e)}
-Still removing from database..."""
+                f"""⚠️ **注销 Session 时发生错误:** {str(e)}\n但仍会尝试从数据库清除..."""
                 )
         finally:
             await temp_client.disconnect()
         await remove_user_session(user_id)
         await edit_message_safely(status_msg,
-            '✅ Logged out successfully!!')
+            '✅ **登出成功！**')
         try:
             if os.path.exists(f"{user_id}_client.session"):
                 os.remove(f"{user_id}_client.session")
@@ -277,7 +271,7 @@ Still removing from database..."""
         if UC.get(user_id, None):
             del UC[user_id]
         await edit_message_safely(status_msg,
-            f'❌ An error occurred during logout: {str(e)}')
+            f'❌ **登出过程中发生错误:** `{str(e)}`')
         try:
             if os.path.exists(f"{user_id}_client.session"):
                 os.remove(f"{user_id}_client.session")
